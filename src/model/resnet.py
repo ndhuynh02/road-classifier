@@ -6,7 +6,7 @@ from torchvision.models import ResNet18_Weights, ResNet34_Weights, ResNet50_Weig
 
 
 class Resnet(nn.Module):
-    def __init__(self, backbone: str = '18', pretrain: bool = True):
+    def __init__(self, backbone: str = '18', num_classes: int = 6, pretrain: bool = True):
         super().__init__()
 
         assert backbone in ['18', '34', '50', '101', '152']
@@ -26,13 +26,15 @@ class Resnet(nn.Module):
 
         layers = list(backbone.children())
         self.feature_extractor = nn.Sequential(*layers[:-1])
-        self.linear = nn.Linear(in_features=layers[-1].in_features, out_features=6, bias=True if layers[-1].bias is not None else None)
+        self.linear = nn.Linear(in_features=layers[-1].in_features, out_features=num_classes, 
+                                bias=True if layers[-1].bias is not None else None)
         
     def forward(self, x):
         x = self.feature_extractor(x)
         x = torch.flatten(x, 1)     # keep batch_size
         x = self.linear(x)
         return x
+
 
 if __name__ == "__main__":
     x = torch.randn((1, 3, 360, 240))   # Batch_size, Channel, Height, Width
