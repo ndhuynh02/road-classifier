@@ -3,10 +3,12 @@ pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 import albumentations as A
 from albumentations.pytorch.transforms import ToTensorV2
+from sklearn.metrics import classification_report
 
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 
 from src.data.road import Road
 from src.data.transform_road import TransformRoad
@@ -14,6 +16,7 @@ from src.model.resnet import Resnet
 
 learning_rate = 3e-4    # Karpathy constance
 batch_size = 16
+num_workers = 2
 epochs = 5
 device = 'cpu'
 
@@ -69,6 +72,24 @@ def train_loop(dataloader, model, loss_fn, optimizer, device='cpu'):
             loss, current = loss.item(), batch * batch_size + len(X)
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
+def val_loop(dataloader, model, loss_fn, device='cpu'):
+    model.eval()
+    size = len(dataloader.dataset)
+    num_batches = len(dataloader)
+    test_loss, correct = 0, 0
+
+    with torch.no_grad():
+        for X, y in dataloader:
+            pred = model(X)
+            test_loss += loss_fn(pred, y).item()
+
+            pred = F.softmax(pred, dim=1)
+            correct += (pred.argmax(1) == y).type(torch.float).sum().item()
+
+    test_loss /= num_batches
+    correct /= size
+    print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
+
 
 def test_loop(dataloader, model, loss_fn, device='cpu'):
     # Set the model to evaluation mode - important for batch normalization and dropout layers
@@ -76,8 +97,9 @@ def test_loop(dataloader, model, loss_fn, device='cpu'):
     model.eval()
     size = len(dataloader.dataset)
     num_batches = len(dataloader)
-    test_loss, correct = 0, 0
-
+    loss = 0
+    ground_truth = []
+    predictions = []
     # Evaluating the model with torch.no_grad() ensures that no gradients are computed during test mode
     # also serves to reduce unnecessary gradient computations and memory usage for tensors with requires_grad=True
     with torch.no_grad():
@@ -86,32 +108,39 @@ def test_loop(dataloader, model, loss_fn, device='cpu'):
             y = y.to(device)
 
             pred = model(X)
-            test_loss += loss_fn(pred, y).item()
-            correct += (pred.argmax(1) == y).type(torch.float).sum().item()
+            loss += loss_fn(pred, y).item()
 
-    test_loss /= num_batches
-    correct /= size
-    print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
+            pred = F.softmax(pred, dim=1)
+            pred = pred.argmax(1)
+
+            ground_truth += y.cpu().tolist()
+            predictions += pred.cpu().tolist()
+
+    loss /= num_batches
+    print(f"Avg loss: {loss:>8f} \n")
+    print(classification_report(ground_truth, predictions))
 
 
 def main(epochs=50):
     DEVICE = torch.device("cuda" if torch.cuda.is_available() and device =='cuda' else "cpu")
     
     train_set, val_set, test_set = get_dataset()
-    train_dataloader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
-    val_dataloader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=4)
-    test_dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
+    train_dataloader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    val_dataloader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    test_dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     model = get_model().to(DEVICE)
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)    
 
+    print("Training...")
     for t in range(epochs):
         print(f"Epoch {t+1}\n-------------------------------")
         train_loop(train_dataloader, model, loss_fn, optimizer, DEVICE)
-        test_loop(val_dataloader, model, loss_fn, DEVICE)
-        test_loop(test_dataloader, model, loss_fn, DEVICE)
-    print("Done!")
+        val_loop(val_dataloader, model, loss_fn, DEVICE)
+
+    print("\nTesting...")
+    test_loop(test_dataloader, model, loss_fn, DEVICE)
 
 
 if __name__ == "__main__":
