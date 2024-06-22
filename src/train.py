@@ -12,7 +12,6 @@ import torch.nn.functional as F
 
 from src.data.road import Road
 from src.data.transform_road import TransformRoad
-from src.model.resnet import Resnet
 
 learning_rate = 3e-4    # Karpathy constance
 batch_size = 16
@@ -45,9 +44,12 @@ def get_model(model_type='resnet18', pretrain: bool = True):
     model_name = ''.join([i for i in model_type if not i.isdigit()])    # remove numbers
     model_num = model_type[len(model_name):]
 
-    # if model_name == 'resnet':
-    # elif model_name == 'alexnet':
-    return Resnet(model_num, pretrain)
+    if model_name == 'resnet':
+        from src.model.resnet import Resnet
+        return Resnet(backbone=model_num, num_classes=6, pretrain=pretrain)
+    elif model_name == 'alexnet':
+        from src.model.alexnet import AlexNet
+        return AlexNet(num_classes=6, pretrain=pretrain)
         
 
 def train_loop(dataloader, model, loss_fn, optimizer, device='cpu'):
@@ -70,7 +72,8 @@ def train_loop(dataloader, model, loss_fn, optimizer, device='cpu'):
 
         if batch % 5 == 0:
             loss, current = loss.item(), batch * batch_size + len(X)
-            print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+            print(f"Train loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+
 
 def val_loop(dataloader, model, loss_fn, device='cpu'):
     model.eval()
@@ -88,14 +91,13 @@ def val_loop(dataloader, model, loss_fn, device='cpu'):
 
     test_loss /= num_batches
     correct /= size
-    print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
+    print(f"Val Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
 
 
 def test_loop(dataloader, model, loss_fn, device='cpu'):
     # Set the model to evaluation mode - important for batch normalization and dropout layers
     # Unnecessary in this situation but added for best practices
     model.eval()
-    size = len(dataloader.dataset)
     num_batches = len(dataloader)
     loss = 0
     ground_truth = []
@@ -117,11 +119,12 @@ def test_loop(dataloader, model, loss_fn, device='cpu'):
             predictions += pred.cpu().tolist()
 
     loss /= num_batches
+    print("Test Error:")
     print(f"Avg loss: {loss:>8f} \n")
     print(classification_report(ground_truth, predictions))
 
 
-def main(epochs=50):
+def main(model='alexnet', epochs=50):
     DEVICE = torch.device("cuda" if torch.cuda.is_available() and device =='cuda' else "cpu")
     
     train_set, val_set, test_set = get_dataset()
@@ -129,7 +132,7 @@ def main(epochs=50):
     val_dataloader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     test_dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
-    model = get_model().to(DEVICE)
+    model = get_model(model).to(DEVICE)
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)    
 
@@ -144,4 +147,4 @@ def main(epochs=50):
 
 
 if __name__ == "__main__":
-    main()
+    main(model='alexnet')
