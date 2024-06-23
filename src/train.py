@@ -26,8 +26,8 @@ learning_rate = 3e-4    # Karpathy constance
 epochs = 1
 device = 'cuda'
 
-dataset = Road(data_dir='data')
 def get_dataset():
+    dataset = Road(data_dir='data')
     labels = [i.split("/")[-2] for i in dataset.dataset]
     train_ids, valid_and_test_ids, _, valid_and_test_labels = train_test_split(
                     np.arange(len(dataset)), labels,

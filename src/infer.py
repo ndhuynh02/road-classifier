@@ -17,9 +17,15 @@ device = 'cpu'
 model_name = 'alexnet'
 epochs = 1
 
-with open('ckpt/labels_map.json', 'r') as openfile:
+js_label = 'ckpt/labels_map.json'
+
+if not os.path.exists(js_label):
+    _ = Road()
+
+with open(js_label, 'r') as openfile:
     # Reading from json file
     labels_map = json.load(openfile)
+
 
 def infer(ckpt_path:str, image_path: str, device):
     image = Image.open(image_path).convert("RGB")
