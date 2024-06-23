@@ -12,13 +12,18 @@ class Road(Dataset):
 
         self.dataset = glob.glob(pathname=data_dir + "/**/*.jpg", recursive=True)
 
-        labels = glob.glob(pathname=data_dir + "/*")
-        labels_map = {}
-        for i, label in enumerate(labels):
-            labels_map[label.split("/")[-1]] = i
+        try:
+            with open('ckpt/labels_map.json', 'r') as openfile:
+                # Reading from json file
+                self.labels_map = json.load(openfile)
+        except:
+            labels = glob.glob(pathname=data_dir + "/*")
+            self.labels_map = {}
+            for i, label in enumerate(labels):
+                self.labels_map[label.split("/")[-1]] = i
 
-        with open('ckpt/labels_map.json', 'w') as f:
-            json.dump(labels_map, f)
+            with open('ckpt/labels_map.json', 'w') as f:
+                json.dump(self.labels_map, f)
 
     def __len__(self):
         return len(self.dataset)
