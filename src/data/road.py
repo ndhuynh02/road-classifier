@@ -3,6 +3,7 @@ import json
 import glob
 import gdown
 from PIL import Image
+from pathlib import Path
 from zipfile import ZipFile 
 from torch.utils.data import Dataset
 
@@ -22,6 +23,7 @@ class Road(Dataset):
             for i, label in enumerate(labels):
                 self.labels_map[label.split("/")[-1]] = i
 
+            Path('ckpt').mkdir(parents=True, exist_ok=True)
             with open('ckpt/labels_map.json', 'w') as f:
                 json.dump(self.labels_map, f)
 
