@@ -1,5 +1,10 @@
 This is the Road classifier project
 
+Install requirements:
+```bash
+pip install -r requirements.txt
+```
+
 To train the model, please use the `main` function in `src/train.py`
 or just call 
 ```bash
