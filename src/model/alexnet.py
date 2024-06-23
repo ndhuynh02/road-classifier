@@ -7,6 +7,7 @@ class AlexNet(nn.Module):
         super().__init__()
         self.model = alexnet(weights=AlexNet_Weights.DEFAULT if pretrain else None)
 
+        classifier = list(self.model.classifier.children())
         linear = classifier[-1]
         in_features = linear.in_features
         bias = True if linear.bias is not None else False
