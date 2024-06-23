@@ -1,4 +1,5 @@
 import os
+import json
 import glob
 import gdown
 from PIL import Image
@@ -12,9 +13,12 @@ class Road(Dataset):
         self.dataset = glob.glob(pathname=data_dir + "/**/*.jpg", recursive=True)
 
         labels = glob.glob(pathname=data_dir + "/*")
-        self.labels_map = {}
+        labels_map = {}
         for i, label in enumerate(labels):
-            self.labels_map[label.split("/")[-1]] = i
+            labels_map[label.split("/")[-1]] = i
+
+        with open('ckpt/labels_map.json', 'w') as f:
+            json.dump(labels_map, f)
 
     def __len__(self):
         return len(self.dataset)
@@ -57,5 +61,3 @@ class Road(Dataset):
 
 if __name__ == "__main__":
     data = Road()
-    print(data.labels_map)
-    print(data.labels_count)
