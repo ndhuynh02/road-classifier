@@ -2,6 +2,7 @@ import pyrootutils
 pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 import numpy as np
+from PIL import Image
 import albumentations as A
 from albumentations.pytorch.transforms import ToTensorV2
 from sklearn.metrics import classification_report
@@ -22,12 +23,11 @@ num_workers = 2
 
 # training hyper-param
 learning_rate = 3e-4    # Karpathy constance
-epochs = 5
-device = 'cpu'
+epochs = 1
+device = 'cuda'
 
-
+dataset = Road(data_dir='data')
 def get_dataset():
-    dataset = Road(data_dir='data')
     labels = [i.split("/")[-2] for i in dataset.dataset]
     train_ids, valid_and_test_ids, _, valid_and_test_labels = train_test_split(
                     np.arange(len(dataset)), labels,
@@ -58,7 +58,7 @@ def get_dataset():
         A.RGBShift(r_shift_limit=15, g_shift_limit=15, b_shift_limit=15, p=0.5),
         A.RandomBrightnessContrast(p=0.5),
         A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ToTensorV2(),
+        ToTensorV2(),   # image: (Height, Width, Channel) -> (Channel, Height, Width)
     ])
 
     train_set = TransformRoad(train_set, transform)
@@ -85,6 +85,7 @@ def train_loop(dataloader, model, loss_fn, optimizer, device='cpu'):
     # Set the model to training mode - important for batch normalization and dropout layers
     # Unnecessary in this situation but added for best practices
     model.train()
+    loss_total = 0
     for batch, (X, y) in enumerate(dataloader):
         X = X.to(device)
         y = y.to(device)
@@ -92,15 +93,18 @@ def train_loop(dataloader, model, loss_fn, optimizer, device='cpu'):
         # Compute prediction and loss
         pred = model(X)
         loss = loss_fn(pred, y)
+        loss_total += loss.item()
 
         # Backpropagation
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
 
-        if batch % 5 == 0:
+        if batch % 100 == 0:
             loss, current = loss.item(), batch * batch_size + len(X)
             print(f"Train loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+
+    print(f"Avg loss: {loss_total / len(dataloader) :>8f} \n")
 
 
 def val_loop(dataloader, model, loss_fn, device='cpu'):
@@ -111,6 +115,9 @@ def val_loop(dataloader, model, loss_fn, device='cpu'):
 
     with torch.no_grad():
         for X, y in dataloader:
+            X = X.to(device)
+            y = y.to(device)
+
             pred = model(X)
             test_loss += loss_fn(pred, y).item()
 
@@ -119,7 +126,7 @@ def val_loop(dataloader, model, loss_fn, device='cpu'):
 
     test_loss /= num_batches
     correct /= size
-    print(f"Val Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
+    print(f"\nVal Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
 
 
 def test_loop(dataloader, model, loss_fn, device='cpu'):
@@ -137,11 +144,11 @@ def test_loop(dataloader, model, loss_fn, device='cpu'):
             X = X.to(device)
             y = y.to(device)
 
-            pred = model(X)
+            pred = model(X) # logits    # (Batch_size, 6)   logits \in [-vc, vc]
             loss += loss_fn(pred, y).item()
 
-            pred = F.softmax(pred, dim=1)
-            pred = pred.argmax(1)
+            pred = F.softmax(pred, dim=1)   # (Batch_size, 6)   softmax \in [0, 1]
+            pred = pred.argmax(1)           # class prediction
 
             ground_truth += y.cpu().tolist()
             predictions += pred.cpu().tolist()
@@ -152,20 +159,18 @@ def test_loop(dataloader, model, loss_fn, device='cpu'):
     print(classification_report(ground_truth, predictions))
 
 
-def main(model='alexnet', epochs=50):
-    DEVICE = torch.device("cuda" if torch.cuda.is_available() and device =='cuda' else "cpu")
-    
+def main(model_name='alexnet', n_epochs=50):
     train_set, val_set, test_set = get_dataset()
     train_dataloader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_dataloader = DataLoader(val_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     test_dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
-    model = get_model(model).to(DEVICE)
+    model = get_model(model_name).to(DEVICE)
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)    
 
     print("Training...")
-    for t in range(epochs):
+    for t in range(n_epochs):
         print(f"Epoch {t+1}\n-------------------------------")
         train_loop(train_dataloader, model, loss_fn, optimizer, DEVICE)
         val_loop(val_dataloader, model, loss_fn, DEVICE)
@@ -173,6 +178,38 @@ def main(model='alexnet', epochs=50):
     print("\nTesting...")
     test_loop(test_dataloader, model, loss_fn, DEVICE)
 
+    print("\nSaving model")
+    model_scripted = torch.jit.script(model) # Export to TorchScript
+    model_scripted.save(f'ckpt/{model_name}_{n_epochs}epoch.pt') # Save
+
+
+def infer(ckpt_path:str, image_path: str, device):
+    image = Image.open(image_path).convert("RGB")
+    transform = A.Compose([
+        A.Resize(360, 240),
+        A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ToTensorV2(),   # image: (Height, Width, Channel) -> (Channel, Height, Width)
+    ])  
+
+    model = torch.jit.load(ckpt_path).to(device)
+
+    transformed_image = transform(image=np.array(image))['image'].to(device)
+    # (Channel, Height, Width) -> (1, Channel, Height, Width)
+    pred = model(transformed_image.unsqueeze(0)).squeeze(0).cpu() 
+    pred = F.softmax(pred, dim=0)
+    pred_class = pred.argmax()
+
+    idx2label = {v: k for (k, v) in dataset.labels_map.items()}
+    return idx2label[pred_class.item()]
+
 
 if __name__ == "__main__":
-    main(model='alexnet')
+    DEVICE = torch.device("cuda" if torch.cuda.is_available() and device =='cuda' else "cpu")
+
+    model_name = 'alexnet'
+    # training
+    main(model_name=model_name, n_epochs=epochs)
+
+    # inference
+    pred = infer(f"ckpt/{model_name}_{epochs}epoch.pt", "data/dry_asphalt/202201252343338-dry-asphalt-smooth.jpg", DEVICE)
+    print(pred)
