@@ -1,29 +1,57 @@
 import pyrootutils
 pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
+import numpy as np
 import albumentations as A
 from albumentations.pytorch.transforms import ToTensorV2
 from sklearn.metrics import classification_report
+from sklearn.model_selection import train_test_split
 
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 import torch.nn.functional as F
 
 from src.data.road import Road
 from src.data.transform_road import TransformRoad
 
-learning_rate = 3e-4    # Karpathy constance
+# data hyper-param
+train_val_test_split = (0.8, 0.1, 0.1)
 batch_size = 16
 num_workers = 2
+
+# training hyper-param
+learning_rate = 3e-4    # Karpathy constance
 epochs = 5
 device = 'cpu'
 
 
 def get_dataset():
-    train_set = Road(data_type='train')
-    val_set = Road(data_type='val')
-    test_set = Road(data_type='test')
+    dataset = Road(data_dir='data')
+    labels = [i.split("/")[-2] for i in dataset.dataset]
+    train_ids, valid_and_test_ids, _, valid_and_test_labels = train_test_split(
+                    np.arange(len(dataset)), labels,
+                    train_size=train_val_test_split[0],
+                    stratify=labels,
+                    shuffle=True,
+                    random_state=42,
+                )
+    val_ids, test_ids = train_test_split(
+        valid_and_test_ids,
+        train_size=train_val_test_split[1]
+            / (
+                train_val_test_split[1] + train_val_test_split[2]
+            ),
+        stratify=valid_and_test_labels,
+        shuffle=True,
+        random_state=42,
+    )
+    assert len(train_ids) + len(val_ids) + len(test_ids) == len(dataset)
+
+    # get subset of dataset from indices
+    train_set = Subset(dataset, train_ids)
+    val_set = Subset(dataset, val_ids)
+    test_set = Subset(dataset, test_ids)
 
     transform = A.Compose([
         A.HorizontalFlip(p=0.5),
