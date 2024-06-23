@@ -149,6 +149,7 @@ dmypy.json
 configs/local/default.yaml
 /ckpt/
 /data/
+/notebook/
 /logs/
 /outputs/
 .env
